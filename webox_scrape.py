@@ -167,16 +167,25 @@ def write_csv(path: str, rows: list[dict]) -> None:
             writer.writerow(row)
 
 
-def upload_to_drive(csv_path: str, folder_name: str, service_account_json_str: str) -> str:
+def _build_drive_service(client_id: str, client_secret: str, refresh_token: str):
+    from google.oauth2.credentials import Credentials
     from googleapiclient.discovery import build
-    from googleapiclient.http import MediaFileUpload
-    from google.oauth2 import service_account
 
-    credentials = service_account.Credentials.from_service_account_info(
-        json.loads(service_account_json_str),
+    credentials = Credentials(
+        token=None,
+        refresh_token=refresh_token,
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=client_id,
+        client_secret=client_secret,
         scopes=["https://www.googleapis.com/auth/drive"],
     )
-    service = build("drive", "v3", credentials=credentials)
+    return build("drive", "v3", credentials=credentials)
+
+
+def upload_to_drive(csv_path: str, folder_name: str, client_id: str, client_secret: str, refresh_token: str) -> str:
+    from googleapiclient.http import MediaFileUpload
+
+    service = _build_drive_service(client_id, client_secret, refresh_token)
 
     results = service.files().list(
         q=f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false",
@@ -204,15 +213,8 @@ def upload_to_drive(csv_path: str, folder_name: str, service_account_json_str: s
     return file_id
 
 
-def cleanup_old_files(folder_name: str, service_account_json_str: str, keep_days: int = 5) -> None:
-    from googleapiclient.discovery import build
-    from google.oauth2 import service_account
-
-    credentials = service_account.Credentials.from_service_account_info(
-        json.loads(service_account_json_str),
-        scopes=["https://www.googleapis.com/auth/drive"],
-    )
-    service = build("drive", "v3", credentials=credentials)
+def cleanup_old_files(folder_name: str, client_id: str, client_secret: str, refresh_token: str, keep_days: int = 5) -> None:
+    service = _build_drive_service(client_id, client_secret, refresh_token)
 
     results = service.files().list(
         q=f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false",
@@ -311,12 +313,14 @@ def main() -> int:
     write_csv(output_path, rows)
     print(f"Saved {len(rows)} rows to {output_path}")
 
-    service_account_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
-    if service_account_json:
-        upload_to_drive(output_path, "WeBox Daily Menus", service_account_json)
-        cleanup_old_files("WeBox Daily Menus", service_account_json, keep_days=5)
+    client_id = os.environ.get("GOOGLE_CLIENT_ID")
+    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET")
+    refresh_token = os.environ.get("GOOGLE_REFRESH_TOKEN")
+    if client_id and client_secret and refresh_token:
+        upload_to_drive(output_path, "WeBox Daily Menus", client_id, client_secret, refresh_token)
+        cleanup_old_files("WeBox Daily Menus", client_id, client_secret, refresh_token, keep_days=5)
     else:
-        print("GOOGLE_SERVICE_ACCOUNT_JSON not set — skipping Drive upload.")
+        print("GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN not set — skipping Drive upload.")
     return 0
 
 
