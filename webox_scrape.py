@@ -47,6 +47,28 @@ DEFAULT_FILTER = {
     "queryText": " ",
 }
 
+NUTRITION_PARTNERS = {
+    "Popeyes",
+    "Chop Stop",
+    "Lotus & Lime",
+    "Urban Plates",
+    "Vitality Bowls Brokaw",
+    "The Good Salad",
+    "Subway",
+    "Curry Pizza House",
+    "Melo Melo Coconut Dessert",
+    "Wingstop",
+    "Togo's Sandwiches Santa Clara",
+    "moonbowls",
+    "Frank & Furter's Handcrafted Hot Dogs",
+    "Palmita",
+    "Romano's Macaroni Grill",
+    "Erik's DeliCafe",
+    "Pacific Catch",
+    "El Pollo Loco",
+    "Starbird Santa Clara",
+}
+
 CSV_FIELDS = [
     "Available delivery date",
     "productId",
@@ -294,7 +316,7 @@ def main() -> int:
             continue
 
         rows = [normalize_item(item, brand_map) for item in specials]
-        rows = [r for r in rows if r.get("stockStatus") != "Outofstock"]
+        rows = [r for r in rows if r.get("stockStatus") != "Outofstock" and r.get("partnerName") in NUTRITION_PARTNERS]
         for r in rows:
             r["Available delivery date"] = date
         all_rows.extend(rows)
