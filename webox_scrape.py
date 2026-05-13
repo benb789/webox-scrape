@@ -48,6 +48,7 @@ DEFAULT_FILTER = {
 }
 
 CSV_FIELDS = [
+    "Available delivery date",
     "productId",
     "price",
     "regularPrice",
@@ -273,23 +274,10 @@ def main() -> int:
 
     # If a specific date is given, fetch only that date; otherwise fetch next 5 workdays
     explicit_date = args.date or os.environ.get("WEBOX_DATE")
-    dates_to_fetch = [explicit_date] if explicit_date else [d.isoformat() for d in get_next_workdays(5)]
+    dates_to_fetch = [explicit_date] if explicit_date else [d.isoformat() for d in get_next_workdays(6)]
 
-    client_id = os.environ.get("GOOGLE_CLIENT_ID")
-    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET")
-    refresh_token = os.environ.get("GOOGLE_REFRESH_TOKEN")
-    use_drive = bool(client_id and client_secret and refresh_token)
-
+    all_rows: list[dict] = []
     for date in dates_to_fetch:
-        if os.environ.get("GITHUB_ACTIONS"):
-            default_output = f"webox_menu_{date}_{args.time.lower()}.csv"
-        else:
-            default_output = os.path.join(
-                os.path.expanduser("~"), "OneDrive", "Desktop",
-                f"webox_menu_{date}_{args.time.lower()}.csv"
-            )
-        output_path = args.output or default_output
-
         print(f"\nRequesting {API_URL}?client=web for date={date} time={args.time} pageSize={args.page_size}")
         try:
             specials, total_count, brand_map = fetch_all_specials(
@@ -305,24 +293,29 @@ def main() -> int:
             print(f"Error fetching specials for {date}: {exc}")
             continue
 
-        if not specials:
-            print(f"No specials returned for {date}.")
-        else:
-            if total_count is not None:
-                print(f"Received {len(specials)} of {total_count} total items.")
-            else:
-                print(f"Received {len(specials)} items.")
-
         rows = [normalize_item(item, brand_map) for item in specials]
-        write_csv(output_path, rows)
-        print(f"Saved {len(rows)} rows to {output_path}")
+        rows = [r for r in rows if r.get("stockStatus") != "Outofstock"]
+        for r in rows:
+            r["Available delivery date"] = date
+        all_rows.extend(rows)
+        print(f"{len(rows)} in-stock items for {date}")
 
-        if use_drive:
-            upload_to_drive(output_path, "WeBox Daily Menus", client_id, client_secret, refresh_token)
+    if os.environ.get("GITHUB_ACTIONS"):
+        master_path = "webox_menu_master.csv"
+    else:
+        master_path = os.path.join(
+            os.path.expanduser("~"), "OneDrive", "Desktop", "webox_menu_master.csv"
+        )
+    master_path = args.output or master_path
+    write_csv(master_path, all_rows)
+    print(f"\nSaved {len(all_rows)} total in-stock rows to {master_path}")
 
-    if use_drive:
-        cleanup_old_files("WeBox Daily Menus", client_id, client_secret, refresh_token)
-    elif not use_drive:
+    client_id = os.environ.get("GOOGLE_CLIENT_ID")
+    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET")
+    refresh_token = os.environ.get("GOOGLE_REFRESH_TOKEN")
+    if client_id and client_secret and refresh_token:
+        upload_to_drive(master_path, "WeBox Daily Menus", client_id, client_secret, refresh_token)
+    else:
         print("GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN not set — skipping Drive upload.")
     return 0
 
