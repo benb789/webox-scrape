@@ -274,7 +274,7 @@ def main() -> int:
 
     # If a specific date is given, fetch only that date; otherwise fetch next 5 workdays
     explicit_date = args.date or os.environ.get("WEBOX_DATE")
-    dates_to_fetch = [explicit_date] if explicit_date else [d.isoformat() for d in get_next_workdays(6)]
+    dates_to_fetch = [explicit_date] if explicit_date else [d.isoformat() for d in get_next_workdays(5)]
 
     all_rows: list[dict] = []
     for date in dates_to_fetch:
