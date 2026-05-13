@@ -1,0 +1,46 @@
+name: WeBox Daily Menu Pull
+
+on:
+  schedule:
+    # 7:00 AM Pacific Daylight Time (PDT) = 14:00 UTC (Mar-Nov)
+    # In winter (PST), this runs at 6:00 AM — update to 15:00 UTC Nov-Mar if needed
+    - cron: '0 14 * * 1-5'
+  workflow_dispatch:
+    # Allows manual trigger from GitHub Actions UI — useful for testing
+    # and for pulling today's menu if the scheduled run fails
+
+jobs:
+  pull-menu:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Set today's date (Pacific Time)
+        run: |
+          # Force Pacific timezone for date calculation
+          echo "WEBOX_DATE=$(TZ='America/Los_Angeles' date +%Y-%m-%d)" >> $GITHUB_ENV
+
+      - name: Run WeBox scraper
+        env:
+          WEBOX_DATE: ${{ env.WEBOX_DATE }}
+          WEBOX_ADDRESS_ID: ${{ secrets.WEBOX_ADDRESS_ID }}
+          WEBOX_COOKIE: ${{ secrets.WEBOX_COOKIE }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          python webox_scrape.py \
+            --date "$WEBOX_DATE" \
+            --time Lunch \
+            --page-size 500
+
+      - name: Confirm upload
+        run: echo "WeBox menu for $WEBOX_DATE uploaded to Google Drive successfully."
