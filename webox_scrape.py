@@ -232,19 +232,12 @@ def cleanup_old_files(folder_name: str, client_id: str, client_secret: str, refr
     ).execute().get("files", [])
 
     today = datetime.date.today()
-    workdays: set[datetime.date] = set()
-    d = today
-    while len(workdays) < keep_days:
-        if d.weekday() < 5:
-            workdays.add(d)
-        d -= datetime.timedelta(days=1)
-
     pattern = re.compile(r"webox_menu_(\d{4}-\d{2}-\d{2})_lunch\.csv")
     for f in csv_files:
         m = pattern.match(f["name"])
         if m:
             file_date = datetime.date.fromisoformat(m.group(1))
-            if file_date not in workdays:
+            if file_date < today:
                 service.files().delete(fileId=f["id"]).execute()
                 print(f"Deleted old file: {f['name']}")
 
@@ -262,64 +255,74 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def get_next_workdays(n: int) -> list[datetime.date]:
+    """Return today plus the next n-1 workdays (Mon-Fri only)."""
+    days: list[datetime.date] = []
+    d = datetime.date.today()
+    while len(days) < n:
+        if d.weekday() < 5:
+            days.append(d)
+        d += datetime.timedelta(days=1)
+    return days
+
+
 def main() -> int:
     args = parse_args()
-    # Priority order: CLI arg → env var → interactive prompt / default
-    date = args.date or os.environ.get("WEBOX_DATE") or input("Enter date: ")
     address_id = args.address_id or int(os.environ.get("WEBOX_ADDRESS_ID", 239098))
     cookie = args.cookie or os.environ.get("WEBOX_COOKIE") or COOKIE_HEADER
 
-    payload = build_payload(
-        address_id=address_id,
-        date_shipping=date,
-        time_shipping=args.time,
-        catering=args.catering,
-        page_index=args.page_index,
-        page_size=args.page_size,
-    )
-
-    if os.environ.get("GITHUB_ACTIONS"):
-        default_output = f"webox_menu_{date}_{args.time.lower()}.csv"
-    else:
-        default_output = os.path.join(
-            os.path.expanduser("~"), "OneDrive", "Desktop",
-            f"webox_menu_{date}_{args.time.lower()}.csv"
-        )
-    output_path = args.output or default_output
-    print(f"Requesting {API_URL}?client=web for date={date} time={args.time} pageSize={args.page_size}")
-    try:
-        specials, total_count, brand_map = fetch_all_specials(
-            address_id=address_id,
-            date_shipping=date,
-            time_shipping=args.time,
-            catering=args.catering,
-            page_index=args.page_index,
-            page_size=args.page_size,
-            cookie_header=cookie,
-        )
-    except Exception as exc:
-        print(f"Error fetching specials: {exc}")
-        return 1
-
-    if not specials:
-        print("No specials were returned by the API.")
-    else:
-        if total_count is not None:
-            print(f"Received {len(specials)} of {total_count} total items from the API.")
-        else:
-            print(f"Received {len(specials)} items from the API.")
-
-    rows = [normalize_item(item, brand_map) for item in specials]
-    write_csv(output_path, rows)
-    print(f"Saved {len(rows)} rows to {output_path}")
+    # If a specific date is given, fetch only that date; otherwise fetch next 5 workdays
+    explicit_date = args.date or os.environ.get("WEBOX_DATE")
+    dates_to_fetch = [explicit_date] if explicit_date else [d.isoformat() for d in get_next_workdays(5)]
 
     client_id = os.environ.get("GOOGLE_CLIENT_ID")
     client_secret = os.environ.get("GOOGLE_CLIENT_SECRET")
     refresh_token = os.environ.get("GOOGLE_REFRESH_TOKEN")
-    if client_id and client_secret and refresh_token:
-        upload_to_drive(output_path, "WeBox Daily Menus", client_id, client_secret, refresh_token)
-        cleanup_old_files("WeBox Daily Menus", client_id, client_secret, refresh_token, keep_days=5)
-    else:
+    use_drive = bool(client_id and client_secret and refresh_token)
+
+    for date in dates_to_fetch:
+        if os.environ.get("GITHUB_ACTIONS"):
+            default_output = f"webox_menu_{date}_{args.time.lower()}.csv"
+        else:
+            default_output = os.path.join(
+                os.path.expanduser("~"), "OneDrive", "Desktop",
+                f"webox_menu_{date}_{args.time.lower()}.csv"
+            )
+        output_path = args.output or default_output
+
+        print(f"\nRequesting {API_URL}?client=web for date={date} time={args.time} pageSize={args.page_size}")
+        try:
+            specials, total_count, brand_map = fetch_all_specials(
+                address_id=address_id,
+                date_shipping=date,
+                time_shipping=args.time,
+                catering=args.catering,
+                page_index=args.page_index,
+                page_size=args.page_size,
+                cookie_header=cookie,
+            )
+        except Exception as exc:
+            print(f"Error fetching specials for {date}: {exc}")
+            continue
+
+        if not specials:
+            print(f"No specials returned for {date}.")
+        else:
+            if total_count is not None:
+                print(f"Received {len(specials)} of {total_count} total items.")
+            else:
+                print(f"Received {len(specials)} items.")
+
+        rows = [normalize_item(item, brand_map) for item in specials]
+        write_csv(output_path, rows)
+        print(f"Saved {len(rows)} rows to {output_path}")
+
+        if use_drive:
+            upload_to_drive(output_path, "WeBox Daily Menus", client_id, client_secret, refresh_token)
+
+    if use_drive:
+        cleanup_old_files("WeBox Daily Menus", client_id, client_secret, refresh_token)
+    elif not use_drive:
         print("GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN not set — skipping Drive upload.")
     return 0
 

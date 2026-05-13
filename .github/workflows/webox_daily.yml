@@ -25,22 +25,16 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Set today's date (Pacific Time)
-        run: |
-          # Force Pacific timezone for date calculation
-          echo "WEBOX_DATE=$(TZ='America/Los_Angeles' date +%Y-%m-%d)" >> $GITHUB_ENV
-
       - name: Run WeBox scraper
         env:
-          WEBOX_DATE: ${{ env.WEBOX_DATE }}
           WEBOX_ADDRESS_ID: ${{ secrets.WEBOX_ADDRESS_ID }}
           WEBOX_COOKIE: ${{ secrets.WEBOX_COOKIE }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          TZ: America/Los_Angeles
         run: |
           python webox_scrape.py \
-            --date "$WEBOX_DATE" \
             --time Lunch \
             --page-size 500
 
